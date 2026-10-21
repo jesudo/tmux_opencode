@@ -1,0 +1,26 @@
+---
+description: Stage only files relevant to the current conversation.
+agent: build
+---
+
+Stage the changes relevant to the current conversation in the current Git repository. Additional user direction: $ARGUMENTS
+
+1. Inspect `git status --short`, `git diff`, and `git diff --cached`. Do not alter already staged changes unless they are part of the current request.
+2. Identify only files that were created, changed, or explicitly requested during this conversation. Do not stage unrelated files.
+3. Before staging, inspect every selected path and its diff for material that should not be tracked. Never stage credentials, passwords, API keys, tokens, private keys, certificates, `.env` files (except intentionally safe examples such as `.env.example`), credential stores, or configuration containing real secret values. Treat secret-like filenames (for example `*.pem`, `*.key`, `id_rsa`, `credentials*`) and values (for example bearer tokens, private-key blocks, connection strings with passwords) as suspicious. Leave suspicious files unstaged and clearly warn the user; do not rely solely on `.gitignore`.
+4. Stage the approved files with `git add -- <explicit paths>`. Never use `git add .`, `git add -A`, or a broad pathspec.
+5. Reinspect the full staged diff for sensitive material after staging. If anything suspicious is found, immediately unstage only the affected explicit paths with `git restore --staged -- <explicit paths>`, report the warning, and do not offer commit or push actions until the staged diff is clean.
+6. If a selected file contains changes that may not belong to this conversation, stage the full file anyway, then clearly warn that the file may include unrelated changes.
+7. If staging more than 10 files or more than 500 added and deleted lines in total, clearly warn that the staged change set is unusually large. Continue staging unless the user has said not to.
+8. Run `git diff --cached --check` after staging. If it fails, report the problem and do not make further staging changes.
+9. If no files are staged, report that result and stop. Otherwise, propose two commit messages based only on the clean staged diff: a concise imperative Conventional Commit-style subject of 72 characters or fewer, and an extended multi-line message with that subject followed by a blank line and a short explanatory body when it materially clarifies the change.
+10. Before opening any interactive menu, send a user-visible staging report containing the files staged by this command, any files deliberately left unstaged, every warning raised, the exact short proposal under a `Proposed commit message:` heading, and the exact multi-line proposal under a `Proposed extended commit message:` heading. Both proposals must be visible in the transcript before the user is prompted; do not place either only in a question description or a later final response.
+11. **Mandatory interactive gate:** only after the visible report in step 10, and before giving any final response, immediately set `@opencode_stage_waiting` to `1` on `$TMUX_PANE` with `tmux set-option -p -t "$TMUX_PANE" @opencode_stage_waiting 1` when running inside tmux (silently continue if tmux is unavailable). Then immediately call the question tool. The staging report alone is incomplete and you must not stop after it. Ask “What should I do with the staged changes?” with these options in this order:
+    - **Leave staged (recommended):** make no Git history or remote changes.
+    - **Commit:** commit the complete staged diff with the proposed message.
+    - **Commit with custom message:** ask a follow-up free-form question for the commit message, then commit the complete staged diff with that message.
+    - **Commit with extended message:** commit the complete staged diff with the displayed `Proposed extended commit message`, preserving its line breaks.
+    - **Commit and push:** commit the complete staged diff with the proposed message, then run `git push` against the current branch's configured upstream.
+12. As soon as the question tool returns any answer, clear `@opencode_stage_waiting` with `tmux set-option -p -t "$TMUX_PANE" @opencode_stage_waiting 0` when running inside tmux (silently continue if tmux is unavailable), before doing any follow-up Git action. If the question tool is unavailable or fails, clear the flag, clearly report that the interactive choice could not be shown, and leave everything staged. Never replace the required question-tool call with instructions for the user to run Git commands manually.
+13. Do not commit or push unless the user explicitly selects one of those actions. Before any commit, warn if there were already staged changes not attributable to this conversation because a Git commit always includes the entire staged index. If the user does not explicitly confirm after that warning, leave everything staged and stop.
+14. For commit-and-push, push only after a successful commit. Do not guess a remote, create a branch, set an upstream, or force-push. If `git push` fails because no upstream exists or for any other reason, report the failure and leave the successful local commit intact.

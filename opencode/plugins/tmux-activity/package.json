@@ -1,0 +1,9 @@
+{
+  "name": "opencode-tmux-activity",
+  "private": true,
+  "type": "module",
+  "main": "./tui.mjs",
+  "exports": {
+    "./tui": "./tui.mjs"
+  }
+}
