@@ -65,9 +65,10 @@ tmux source-file ~/.tmux.conf
 
 ## Test states
 
-Run `/stage` in an OpenCode session with staged changes. When its choice menu
-opens, that tmux tab should become solid red with `‼`; it clears after you make
-a choice.
+Run `/stage` in an OpenCode session with unstaged changes. Its initial approval
+menu must open before any files are staged. While either `/stage` choice menu is
+open, that tmux tab should become solid red with `‼`; it clears after you make a
+choice.
 
 ## Updating
 

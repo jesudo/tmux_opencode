@@ -94,7 +94,8 @@ export default {
     const isStageQuestion = (request) =>
       request?.questions?.some(
         (question) =>
-          question.header === "Staged changes" && question.question === "What should I do with the staged changes?",
+          (question.header === "Stage changes" && question.question === "What should I do with the proposed changes?") ||
+          (question.header === "Staged changes" && question.question === "What should I do with the staged changes?"),
       )
     const setAttention = (sessionID, activity) => {
       if (!sessionID) return
