@@ -2,19 +2,22 @@
 
 Portable configuration for showing OpenCode activity in tmux window tabs.
 
+Small status signals keep active sessions easy to spot.
+
+![tmux tabs showing OpenCode session activity states](assets/tmux-opencode-status.png)
+
 ## What it shows
 
-| Signal | Tab treatment |
-| --- | --- |
-| Idle OpenCode session | Green `●` |
-| Working session | Yellow `●` |
-| Aging/stale session | Grey `●` |
-| OpenCode question or permission request | Amber `!` |
-| `/stage` choice pending | Red `‼` |
+| Symbol | Meaning | Tab treatment |
+| --- | --- | --- |
+| `●` | Idle OpenCode session | Green |
+| `▶` | Working session | Yellow |
+| `◆` | Working for one minute or longer | Orange |
+| `◐` | Aging session | Grey |
+| `×` | Stale session | Grey |
+| `‼` | `/stage` choice pending | Red |
 
-The red `/stage` state is persistent until its menu is answered. The amber
-state is maintained by the OpenCode TUI plugin when the installed OpenCode
-version supplies question/permission events.
+The red `/stage` state is persistent until its menu is answered.
 
 The status bar also includes two rows of session titles and two rows of the
 next suggested user action.
@@ -64,8 +67,7 @@ tmux source-file ~/.tmux.conf
 
 Run `/stage` in an OpenCode session with staged changes. When its choice menu
 opens, that tmux tab should become solid red with `‼`; it clears after you make
-a choice. A normal OpenCode question or permission request uses amber `!` when
-the TUI emits the corresponding event.
+a choice.
 
 ## Updating
 

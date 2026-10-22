@@ -2,9 +2,15 @@ export default {
   id: "tmux-activity",
   setup(context) {
     const pane = process.env.TMUX_PANE
+    const longWorkingAfterMs = 60 * 1_000
     const dimAfterMs = 60 * 60 * 1_000
     const staleAfterMs = 2 * dimAfterMs
     if (!pane) return
+
+    const savedWorkStartedAt = Number(
+      new TextDecoder().decode(Bun.spawnSync(["tmux", "show-options", "-p", "-qv", "-t", pane, "@opencode_work_started_at"]).stdout),
+    )
+    let workStartedAt = Number.isFinite(savedWorkStartedAt) && savedWorkStartedAt > 0 ? savedWorkStartedAt : 0
 
     const setPaneOption = (name, value) => {
       Bun.spawn(["tmux", "set-option", "-p", "-t", pane, name, value], {
@@ -13,9 +19,30 @@ export default {
       })
     }
     const setActivity = (activity) => setPaneOption("@opencode_activity", activity)
+    const setWorkStartedAt = (value) => setPaneOption("@opencode_work_started_at", String(value))
+    const beginWorking = (reset = false) => {
+      if (reset || !workStartedAt) {
+        workStartedAt = Date.now()
+        setWorkStartedAt(workStartedAt)
+      }
+      setActivity(Date.now() - workStartedAt >= longWorkingAfterMs ? "long-working" : "working")
+    }
+    const endWorking = () => {
+      workStartedAt = 0
+      setWorkStartedAt(0)
+    }
     const setAttentionFlag = (activity, active) => {
       if (activity === "stage-attention") setPaneOption("@opencode_stage_waiting", active ? "1" : "0")
       else setPaneOption("@opencode_attention_waiting", active ? "1" : "0")
+    }
+    const clearAttentionFlags = () => {
+      setAttentionFlag("stage-attention", false)
+      setAttentionFlag("attention", false)
+    }
+    const setAttentionActivity = (activity) => {
+      setActivity(activity)
+      setAttentionFlag(activity === "stage-attention" ? "attention" : "stage-attention", false)
+      setAttentionFlag(activity, true)
     }
 
     const setSummary = (title) => {
@@ -75,12 +102,22 @@ export default {
         attentionForSession.set(sessionID, activity)
       }
     }
+    const hasPendingPermission = async (sessionID) => {
+      try {
+        await context.data.session.permission.sync(sessionID)
+        return (context.data.session.permission.list(sessionID) ?? []).length > 0
+      } catch {
+        return false
+      }
+    }
     const refresh = async () => {
       if (refreshing) return
       refreshing = true
 
       const sessionID = currentSessionID()
       if (!sessionID) {
+        endWorking()
+        clearAttentionFlags()
         setActivity("idle")
         setSummary("OpenCode")
         setUpdatedAt(0)
@@ -93,6 +130,9 @@ export default {
         await context.data.session.sync(sessionID)
         if (sessionID !== currentSessionID()) return undefined
 
+        if (await hasPendingPermission(sessionID)) setAttention(sessionID, "attention")
+        if (sessionID !== currentSessionID()) return undefined
+
         const status = context.data.session.status(sessionID)
         const type = typeof status === "string" ? status : status?.type
         const session = context.data.session.get(sessionID)
@@ -101,28 +141,24 @@ export default {
 
         const pendingActivity = attentionForSession.get(sessionID)
         if (pendingActivity) {
-          setAttention(sessionID, pendingActivity)
-          setActivity(pendingActivity)
+          setAttentionActivity(pendingActivity)
           return { session, type }
         }
         attentionForSession.delete(sessionID)
+        clearAttentionFlags()
 
         if (["busy", "retry", "running", "working"].includes(type)) {
-          setActivity("working")
+          beginWorking()
           return { session, type }
         }
 
+        endWorking()
         const age = Date.now() - session?.time?.updated
         setActivity(age >= staleAfterMs ? "stale" : age >= dimAfterMs ? "aging" : "idle")
         return { session, type }
       } finally {
         refreshing = false
       }
-    }
-
-    const updateForCurrentSession = (event, activity) => {
-      const sessionID = eventSessionID(event)
-      if (sessionID && sessionID === currentSessionID()) setActivity(activity)
     }
 
     const generateNextStep = async (sessionID) => {
@@ -151,8 +187,12 @@ export default {
     }
 
     const stopStarted = context.data.on("session.execution.started", (event) => {
-      attentionForSession.delete(eventSessionID(event))
-      updateForCurrentSession(event, "working")
+      const sessionID = eventSessionID(event)
+      attentionForSession.delete(sessionID)
+      if (sessionID && sessionID === currentSessionID()) {
+        clearAttentionFlags()
+        beginWorking(true)
+      }
     })
     const stopSucceeded = context.data.on("session.execution.succeeded", (event) => {
       const sessionID = eventSessionID(event)
@@ -166,8 +206,7 @@ export default {
       const activity = isStageQuestion(request) ? "stage-attention" : "attention"
       setAttention(sessionID, activity)
       if (sessionID && sessionID === currentSessionID()) {
-        setActivity(activity)
-        setAttentionFlag(activity, true)
+        setAttentionActivity(activity)
         setNextStep(activity === "stage-attention" ? "Answer the /stage decision" : "Answer the pending question")
       }
     })
@@ -175,8 +214,7 @@ export default {
       const sessionID = eventSessionID(event)
       setAttention(sessionID, "attention")
       if (sessionID && sessionID === currentSessionID()) {
-        setActivity(attentionForSession.get(sessionID))
-        setAttentionFlag("attention", true)
+        setAttentionActivity(attentionForSession.get(sessionID))
         setNextStep("Respond to the permission request")
       }
     })
@@ -184,15 +222,14 @@ export default {
       const sessionID = eventSessionID(event)
       attentionForSession.delete(sessionID)
       if (sessionID && sessionID === currentSessionID()) {
-        setAttentionFlag("stage-attention", false)
-        setAttentionFlag("attention", false)
+        clearAttentionFlags()
       }
       void refresh()
     }
     const stopQuestionReplied = context.data.on("question.replied", clearQuestionAttention)
     const stopQuestionRejected = context.data.on("question.rejected", clearQuestionAttention)
     const stopPermissionReplied = context.data.on("permission.replied", clearQuestionAttention)
-    const interval = setInterval(() => void refresh(), 15_000)
+    const interval = setInterval(() => void refresh(), 5_000)
 
     void refresh()
     return () => {
@@ -206,8 +243,8 @@ export default {
       stopQuestionReplied()
       stopQuestionRejected()
       stopPermissionReplied()
-      setAttentionFlag("stage-attention", false)
-      setAttentionFlag("attention", false)
+      clearAttentionFlags()
+      endWorking()
       setActivity("idle")
     }
   },
