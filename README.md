@@ -41,15 +41,15 @@ The installer:
 
 1. Copies the local OpenCode plugin to `~/.config/opencode/plugins/tmux-activity/`.
 2. Adds that plugin to `~/.config/opencode/cli.json` without removing existing settings.
-3. Installs the `/stage` command at `~/.config/opencode/commands/stage.md`.
+3. Installs the `/stage` and `/learn` commands at `~/.config/opencode/commands/`.
 4. Adds a managed `source-file` line to `~/.tmux.conf` and reloads tmux.
 
 Restart OpenCode TUI sessions after installation so they load the plugin.
 
 ## Manual installation
 
-Copy `opencode/plugins/tmux-activity/` and `opencode/commands/stage.md` to the
-matching paths under `~/.config/opencode/`. Add the plugin directory to the
+Copy `opencode/plugins/tmux-activity/` and the files in `opencode/commands/` to
+the matching paths under `~/.config/opencode/`. Add the plugin directory to the
 `plugins` array in `~/.config/opencode/cli.json`, then add this line to
 `~/.tmux.conf`:
 
@@ -63,12 +63,19 @@ Reload tmux with:
 tmux source-file ~/.tmux.conf
 ```
 
+## Learning from misunderstandings
+
+Run `/learn` after an agent misunderstands repository guidance. It interviews
+you about the incident, reads the applicable instruction routing, and suggests
+a minimal `AGENTS.md` improvement without changing files. Review its proposal,
+then switch to Build mode and ask to apply it if you approve.
+
 ## Test states
 
 Run `/stage` in an OpenCode session with unstaged changes. Its initial approval
-menu must open before any files are staged. While either `/stage` choice menu is
-open, that tmux tab should become solid red with `‼`; it clears after you make a
-choice.
+menu must open before any files are staged. While its `/stage` choice menu is
+open, that tmux tab should become solid red with `‼`; it clears after you make
+a choice.
 
 ## Updating
 

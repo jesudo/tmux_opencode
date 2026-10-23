@@ -1,66 +1,101 @@
-#!/bin/sh
+#!/usr/bin/env python3
 # Print one wrapped row of each window's most-recent OpenCode session title.
+# Use display columns rather than byte counts so typographic quotes and other
+# Unicode text do not shift the summary rows.
 
-session=$1
-row=${2:-1}
-kind=${3:-title}
-# Tab titles use 20/12 columns after their one-character status glyph, plus a gap.
-full_width=21
-thin_width=13
+import re
+import subprocess
+import sys
+import unicodedata
 
-tmux list-panes -s -t "$session" \
-  -F '#{window_index}|#{window_active}|#{pane_current_command}|#{@opencode_updated_at}|#{@opencode_summary}|#{@opencode_next_step}|#{@opencode_activity}' |
-  awk -F '|' '
-    {
-      windows[$1] = 1
-      active[$1] = $2
-    }
-    $3 == "opencode" && $5 != "" {
-      timestamp = $4 + 0
-      if (!seen[$1] || timestamp > newest[$1]) {
-        seen[$1] = 1
-        newest[$1] = timestamp
-        summary[$1] = $5
-        next_step[$1] = $6
-        activity[$1] = $7
-      }
-    }
-    END {
-      for (window in windows) print window "|" active[window] "|" summary[window] "|" next_step[window] "|" activity[window]
-    }
-  ' |
-  sort -n -k1,1 |
-  awk -F '|' -v wanted="$row" -v full_width="$full_width" -v thin_width="$thin_width" -v kind="$kind" '
-    function wrapped(text, target, max_width,    words, count, line, word, position) {
-      count = 1
-      line = ""
-      split(text, words, " ")
 
-      for (position = 1; position <= length(words); position++) {
-        word = words[position]
-        if (length(word) > max_width) word = substr(word, 1, max_width)
-        if (length(line) && length(line) + 1 + length(word) > max_width) {
-          if (count == target) return line
-          count++
-          line = word
-        } else {
-          line = line ? line " " word : word
-        }
-      }
+session = sys.argv[1]
+row = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+kind = sys.argv[3] if len(sys.argv) > 3 else "title"
+full_width = 21
+thin_width = 9
 
-      return count == target ? line : ""
-    }
-    {
-      text = kind == "next" ? $4 : $3
-      lower = tolower(text)
-      if (kind == "next" && lower ~ /(prompt|transient|internal|model|session|generation|instruction)/) {
+
+def character_width(character):
+    if unicodedata.combining(character) or unicodedata.category(character) == "Cf":
+        return 0
+    return 2 if unicodedata.east_asian_width(character) in {"F", "W"} else 1
+
+
+def display_width(text):
+    return sum(character_width(character) for character in text)
+
+
+def trim_to_width(text, maximum):
+    result = []
+    width = 0
+    for character in text:
+        character_size = character_width(character)
+        if width + character_size > maximum:
+            break
+        result.append(character)
+        width += character_size
+    return "".join(result)
+
+
+def wrapped(text, target, maximum):
+    count = 1
+    line = ""
+    for word in text.split():
+        word = trim_to_width(word, maximum)
+        if line and display_width(line) + 1 + display_width(word) > maximum:
+            if count == target:
+                return line
+            count += 1
+            line = word
+        else:
+            line = f"{line} {word}" if line else word
+    return line if count == target else ""
+
+
+result = subprocess.run(
+    [
+        "tmux",
+        "list-panes",
+        "-s",
+        "-t",
+        session,
+        "-F",
+        "#{window_index}|#{window_active}|#{pane_current_command}|#{@opencode_updated_at}|#{@opencode_summary}|#{@opencode_next_step}|#{@opencode_activity}",
+    ],
+    check=False,
+    capture_output=True,
+    text=True,
+    errors="replace",
+)
+
+windows = {}
+latest = {}
+for line in result.stdout.splitlines():
+    fields = line.split("|", 6)
+    if len(fields) != 7:
+        continue
+    window, active, command, updated, summary, next_step, activity = fields
+    windows[window] = active
+    if command != "opencode" or not summary:
+        continue
+    try:
+        timestamp = float(updated)
+    except ValueError:
+        timestamp = 0
+    if window not in latest or timestamp > latest[window][0]:
+        latest[window] = (timestamp, summary, next_step, activity)
+
+for window in sorted(windows, key=lambda value: int(value)):
+    active = windows[window]
+    _, summary, next_step, activity = latest.get(window, (0, "", "", ""))
+    text = next_step if kind == "next" else summary
+    if kind == "next" and re.search(r"(prompt|transient|internal|model|session|generation|instruction)", text, re.IGNORECASE):
         text = "No action needed"
-      }
-      width = ($2 != "1" && ($5 == "aging" || $5 == "stale")) ? thin_width : full_width
-      left = $2 == "1" ? "│" : ""
-      right = $2 == "1" ? "│" : ""
-      available = width - ($2 == "1" ? 2 : 0)
-      value = wrapped(text, wanted, available)
-      printf "%s%-*s%s ", left, available, value, right
-    }
-  '
+
+    width = thin_width if active != "1" and activity in {"aging", "stale"} else full_width
+    left = "│" if active == "1" else ""
+    right = "│" if active == "1" else ""
+    available = width - 2 if active == "1" else width
+    value = wrapped(text, row, available)
+    print(f"{left}{value}{' ' * (available - display_width(value))}{right} ", end="")

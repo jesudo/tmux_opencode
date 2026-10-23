@@ -16,6 +16,7 @@ cp "${repo_dir}/opencode/plugins/tmux-activity/tmux-summary.sh" "${plugin_dir}/t
 cp "${repo_dir}/opencode/plugins/tmux-activity/package.json" "${plugin_dir}/package.json"
 chmod +x "${plugin_dir}/tmux-summary.sh"
 cp "${repo_dir}/opencode/commands/stage.md" "${command_dir}/stage.md"
+cp "${repo_dir}/opencode/commands/learn.md" "${command_dir}/learn.md"
 
 python3 - "${cli_config}" "${plugin_dir}" <<'PY'
 import json
